@@ -1,0 +1,69 @@
+require('dotenv').config();
+const express = require('express');
+const axios = require('axios');
+
+const app = express();
+app.use(express.json()); // Enable JSON parsing
+
+// Load API key from environment variables
+const VISION_API_KEY = process.env.VISION_API_KEY;
+
+// Helper function to build JSON request for Vision API
+const buildJSONRequestImgUrl = (Base64string) => {
+    return {
+        requests: [{
+            image: { content: Base64string },
+            features: [{ type: 'IMAGE_PROPERTIES', maxResults: 10 }]
+        }]
+    };
+};
+
+// Endpoint to analyze colors in an image
+app.post('/detect-colors', async (req, res) => {
+    try {
+        const { imageBase64 } = req.body;
+
+        if (!imageBase64) {
+            return res.status(400).json({ error: "Missing required parameter: imageBase64" });
+        }
+
+        const visionApiUrl = `https://vision.googleapis.com/v1/images:annotate?key=${VISION_API_KEY}`;
+        const JSON_REQ = buildJSONRequestImgUrl(imageBase64);
+
+        // Send request to Google Vision API
+        const response = await axios.post(visionApiUrl, JSON_REQ, {
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        const parsedResponse = response.data;
+
+        if (!parsedResponse.responses || parsedResponse.responses.length === 0 ||
+            !parsedResponse.responses[0].imagePropertiesAnnotation?.dominantColors?.colors) {
+            return res.status(500).json({ error: "No color data found in the image." });
+        }
+
+        let colorData = [];
+        parsedResponse.responses[0].imagePropertiesAnnotation.dominantColors.colors.forEach(({ color, score }) => {
+            const { red = 0, green = 0, blue = 0 } = color;
+            colorData.push({
+                color: `rgb(${Math.round(red)}, ${Math.round(green)}, ${Math.round(blue)})`,
+                red: Math.round(red),
+                green: Math.round(green),
+                blue: Math.round(blue),
+                score
+            });
+        });
+
+        res.json({ success: true, colors: colorData });
+
+    } catch (error) {
+        console.error("Error processing request:", error.message);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
+});
+
+// Start the server
+const PORT = process.env.PORT || 8080;
+app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+});
